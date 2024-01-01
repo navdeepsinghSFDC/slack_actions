@@ -10,3 +10,5 @@ jobs:
       uses: rtCamp/action-slack-notify@v2
       env:
         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" ${{ secrets.SLACK_WEBHOOK }}
+
