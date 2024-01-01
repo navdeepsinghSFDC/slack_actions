@@ -11,4 +11,5 @@ jobs:
       env:
         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" ${{ secrets.SLACK_WEBHOOK }}
+        curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" https://hooks.slack.com/services/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
 
