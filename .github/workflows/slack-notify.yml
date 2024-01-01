@@ -1,5 +1,10 @@
 on: push
 name: Slack Notification Demo
+
+env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        #curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" ${{ secrets.SLACK_WEBHOOK }}
+      
 jobs:
   slackNotification:
     name: Slack Notification
@@ -8,8 +13,4 @@ jobs:
     - uses: actions/checkout@v2
     - name: Slack Notification
       uses: rtCamp/action-slack-notify@v2
-      env:
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" ${{ secrets.SLACK_WEBHOOK }}
-        curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" https://hooks.slack.com/services/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
-
+       curl -X POST --data-urlencode "payload={\"channel\": \"#deploy_status_nav\", \"username\": \"webhookbot\", \"text\": \"The UAT deployment is successful\", \"icon_emoji\": \":khanda:\"}" https://hooks.slack.com/services/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
