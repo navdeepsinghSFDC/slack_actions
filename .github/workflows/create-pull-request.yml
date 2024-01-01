@@ -1,0 +1,41 @@
+# This is a workflow to create automatically GitHub pull request when a git branch is pushed to the origin
+# Workflow utilizes GitHub REST API
+# Head branch is specified below: [on: -> pull_request: -> branches: -> feature/* (switch this)]
+# Base branch is specified below: [env: -> BASE_BRANCH: main (switch this)]
+# Workflow utilizes Personal Access Token to create a pull request
+
+name: Create Pull Request
+
+on:
+  push:
+    branches:
+    - feature/* # Source git branches for pull request
+
+env:
+  BASE_BRANCH: main # Target git branch for pull request 
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+    steps:    
+      - name: Create Pull Request from Feature Branch # Utilizes GitHub REST API to create pull request using branch that triggered workflow
+        run: |
+          # Creates Pull Request
+          curl \
+            -X POST \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -d '{"head":"${{ github.ref_name }}","base":"${{ env.BASE_BRANCH }}","title":"${{ github.ref_name }}"}' \
+            -o output.txt
+
+          # Gets Pull Request number
+          PULL_REQUEST_NUMBER=$(cat output.txt | jq -r '.number')
+
+          # Assigns author of source branch to Pull Request
+          curl \
+            -X POST \
+            https://api.github.com/repos/${{ github.repository }}/issues/${PULL_REQUEST_NUMBER}/assignees \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -d '{"assignees":"${{ github.actor }}"}'

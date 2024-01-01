@@ -1,0 +1,79 @@
+# This is a workflow that is triggered by a push from a branch with the naming convention "feature/*"
+# This workflow utilizes acu-pack to create a delta package containing only what was changed
+# Feature branch is automatically merged into TARGET_BRANCH if Salesforce deployment is successful
+# Update the TARGET_BRANCH to the branch you want feature branches to be merged into
+# Update the SOURCE_DIR to the directory you want acu-pack to create a delta package from
+
+name: Deploy Deltas on Push
+
+on:
+  push:
+    branches:
+    - feature/* # Git branch(es) that trigger workflow 
+  
+env:
+  SFDX_AUDIENCE_URL: https://login.salesforce.com # Use https://login.salesforce.com for production instances. Use https://test.salesforce.com for sandboxes
+  SALESFORCE_ORG_USERNAME: abirchfield@acumensolutions.com.githubactions # Salesforce username of target org
+  SALESFORCE_ORG_URL: https://acumensolutions-1da-dev-ed.my.salesforce.com # Salesforce URL of target org
+  SALESFORCE_CONSUMER_KEY: ${{ secrets.SALESFORCE_CONSUMER_KEY }} # SFDX App consumer key from target org
+  JWTKEY: ${{ secrets.JWTKEY }} # JWT private key
+  TARGET_BRANCH: main # Git branch to merge feature branch into
+  SOURCE_DIR: force-app # Directory you want acu-pack to create a delta package from
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Git Repository # Checkout Git repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Install Salesforce CLI # Installing Salesforce CLI to run sfdx commands
+        shell: bash
+        run: |
+          npm install --global sfdx-cli@7.186.2
+
+      - name: Install acu-pack # Installing acu-pack to create delta packages
+        shell: bash
+        run: |
+          echo "y" | sfdx plugins:install @salesforce/acu-pack
+          sfdx acu-pack -h
+
+      - name: Setup Git User # Sets up Git user to commit/push merge commit to remote repository
+        shell: bash
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+      
+      - name: Authenticate Salesforce Org # Authenticates Salesforce org utilizing JWT Bearer Flow
+        shell: bash
+        run: |
+          echo "${JWTKEY}" > server.key
+          sfdx force:auth:jwt:grant --jwtkeyfile server.key --clientid "${SALESFORCE_CONSUMER_KEY}" --username "${SALESFORCE_ORG_USERNAME}" --instanceurl "${SALESFORCE_ORG_URL}"
+      
+      - name: Merge Feature Branch into Target Branch # Git merges feature branch into target branch
+        shell: bash
+        run: |
+          git merge --no-ff origin/${GITHUB_REF#refs/heads/} -m "Merge ${GITHUB_REF#refs/heads/} into ${TARGET_BRANCH}" --allow-unrelated-histories
+          
+      - name: Generate Deploy Package # Generates delta package utilizing acu-pack by comparing current git commit with the previous git commit
+        shell: bash
+        run: |
+          git --no-pager diff HEAD^ --name-status --no-renames > git-diff.txt
+          sfdx acu-pack:source:delta:git -g git-diff.txt -s "${SOURCE_DIR}" -d deploy
+          echo "Listing components in deploy package..."
+          find deploy -type f
+          
+      - name: Deploy Delta Package to Target Org # Deploys Salesforce components in delta package to target org
+        shell: bash
+        run: |
+          sfdx force:source:deploy -p deploy -u "${SALESFORCE_ORG_USERNAME}" -g --verbose
+      
+      - name: Push Changes to Repository # Git pushes merge commit to remote repository
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          git push -u origin --force "${TARGET_BRANCH}"

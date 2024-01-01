@@ -1,0 +1,119 @@
+# This is a workflow that is triggered by a new pull request to a specific branch
+# Branch is specified below: [on: -> pull_request: -> branches: -> main (switch this)]
+# This workflow utilizes acu-pack to create a delta package containing only what was changed
+# Workflow checks out merge commit from PR and validates to Salesforce
+# Pair this workflow with the deploy-deltas-on-pr-merged to have changes validated and reviewed before the deployment
+# Update the SOURCE_DIR to the directory you want acu-pack to create a delta package from
+
+name: Validate Deltas on Pull Request Creation
+
+on:
+  pull_request:
+    branches:
+    - main # Git base branch from pull request that triggers workflow
+  
+env:
+  SFDX_AUDIENCE_URL: https://login.salesforce.com # Use https://login.salesforce.com for production instances. Use https://test.salesforce.com for sandboxes
+  SALESFORCE_ORG_USERNAME: abirchfield@acumensolutions.com.githubactions # Salesforce username of target org
+  SALESFORCE_ORG_URL: https://acumensolutions-1da-dev-ed.my.salesforce.com # Salesforce URL of target org
+  SALESFORCE_CONSUMER_KEY: ${{ secrets.SALESFORCE_CONSUMER_KEY }} # SFDX App consumer key from target org
+  JWTKEY: ${{ secrets.JWTKEY }} # JWT private key
+  SOURCE_DIR: force-app # Directory you want acu-pack to create a delta package from
+  HOME: /root # Needed to run SFDX plugin commands
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/abirchfieldsfdc/devops-bootcamp:main
+      credentials:
+        username: ${{ vars.GH_USERNAME }} # GitHub username with access to CSGAMERSServices organization. Use GitHub Actions Variables to store
+        password: ${{ secrets.GH_PAT }} # GitHub user Personal Access Token with read:packages scope. Use GitHub Actions Secrets to store
+    
+    steps:
+      - name: Adding GitHub Workspace as safe directory # Step is needed to use Salesforce CLI plugins
+        shell: bash
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+      
+      - name: Checkout Git Repository # Checkout Git repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Authenticate Salesforce Org # Authenticates Salesforce org utilizing JWT Bearer Flow
+        shell: bash
+        run: |
+          echo "${JWTKEY}" > server.key
+          sfdx force:auth:jwt:grant --jwtkeyfile server.key --clientid "${SALESFORCE_CONSUMER_KEY}" --username "${SALESFORCE_ORG_USERNAME}" --instanceurl "${SALESFORCE_ORG_URL}"
+          
+      - name: Generate Deploy Package # Generates delta package utilizing acu-pack by comparing current git commit with the previous git commit
+        shell: bash
+        run: |
+          git --no-pager diff HEAD^ --name-status --no-renames > git-diff.txt
+          sfdx acu-pack:source:delta:git -g git-diff.txt -s "${SOURCE_DIR}" -d deploy
+          echo "Listing components in deploy package..."
+          find deploy -type f
+          
+      - name: Scan Code # Scans code in deploy package
+        id: scan-code
+        shell: bash
+        run: |
+          (
+            set -o pipefail
+            sfdx scanner:run --target deploy --category 'Documentation' --format table --severity-threshold 3 | tee results.txt
+          )
+          
+      - name: Validate Delta Package to Target Org # Valdiates Salesforce components in delta package to target org
+        id: validate-salesforce
+        shell: bash
+        run: |
+          (
+            set -o pipefail
+            # Checks to see if Apex class/trigger exists in deploy package
+            if [ -d "deploy/main/default/classes" ] || [ -d "deploy/main/default/triggers" ]
+            then
+              # Class(es)/Trigger(s) are in deploy package so the build will run specified tests from the tests/apex-specified-tests.txt
+              echo "Deploying Salesforce components and running specified apex tests..."
+              sfdx force:source:deploy -p deploy -u "${SALESFORCE_ORG_USERNAME}" --checkonly -l RunSpecifiedTests -r $(<tests/apex-specified-tests.txt) -g --verbose | tee results.txt
+            else
+              # Class/Trigger are not in deploy package so the build will not run any tests.
+              echo "Deploying Salesforce components with no apex tests running..."
+              sfdx force:source:deploy -p deploy -u "${SALESFORCE_ORG_USERNAME}" --checkonly -l NoTestRun -g --verbose | tee results.txt
+            fi
+          )
+          
+      - name: Format Results # Formats results in text file to post in PR
+        id: format-results
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          RESULTS=$(cat results.txt)
+          delimiter="$(openssl rand -hex 8)"
+          echo "FORMATTED_RESULTS<<${delimiter}" >> "${GITHUB_OUTPUT}"
+          echo "${RESULTS}" >> "${GITHUB_OUTPUT}"
+          echo "${delimiter}" >> "${GITHUB_OUTPUT}"
+           
+      - name: Update Pull Request # Adds comment to PR with results of Salesforce build
+        if: ${{ always() }}
+        uses: actions/github-script@v6.4.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Code Scan: \`${{ steps.scan-code.outcome }}\` | Validation to Salesforce Org: \`${{ steps.validate-salesforce.outcome }}\`
+            
+            <details><summary>Show Results</summary>
+            
+            \`\`\`\n
+            ${{ steps.format-results.outputs.FORMATTED_RESULTS }}
+            \`\`\`
+            
+            </details>
+            
+            *Workflow: \`${{ github.workflow }}\` | Workflow Run Number: \`${{ github.run_number }}\`*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
