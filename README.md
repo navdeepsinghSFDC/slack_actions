@@ -1,6 +1,6 @@
 #
 #:wq!
- #Salesforce DevOps Bootcamp
+#cdsc #Salesforce DevOps Bootcamp
 
 In order to achieve success as a Salesforce DevOps Engineer, one must be able to spin up CI/CD (continuous integration and continuous delivery/deployment) to bridge the gap between development and operations.
 
